@@ -5,10 +5,10 @@
 		"workspaceName": {
 			"value": "dowtz3m4xrbmjf44pocws1"
 		},
-		"TripFaresSynapseAnalyticsLinkedService_connectionString": {
+		"LS_sasampledata_accountKey": {
 			"value": ""
 		},
-		"LS_sasampledata_accountKey": {
+		"TripFaresSynapseAnalyticsLinkedService_connectionString": {
 			"value": ""
 		},
 		"HttpServerTripDataLinkedService_properties_typeProperties_url": {
@@ -17,14 +17,14 @@
 		"HttpServerTripFareDataLinkedService_properties_typeProperties_url": {
 			"value": "https://raw.githubusercontent.com/Azure/Test-Drive-Azure-Synapse-with-a-1-click-POC/main/tripDataAndFaresCSV/fares-data.csv"
 		},
+		"LS_sasampledata_properties_typeProperties_url": {
+			"value": "https://sasampledata.dfs.core.windows.net"
+		},
 		"TripFaresDataLakeStorageLinkedService_properties_typeProperties_url": {
 			"value": "@{concat('https://',linkedService().datalakeAccountName,'.dfs.core.windows.net')}"
 		},
 		"keyVaultLinkedservice_properties_typeProperties_baseUrl": {
 			"value": "@{concat('https://',linkedService().keyVaultName,'.vault.azure.net/')}"
-		},
-		"LS_sasampledata_properties_typeProperties_url": {
-			"value": "https://sasampledata.dfs.core.windows.net"
 		}
 	}
 }

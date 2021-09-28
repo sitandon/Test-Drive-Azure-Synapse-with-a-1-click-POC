@@ -7,13 +7,13 @@
 			"metadata": "Workspace name",
 			"defaultValue": "dowtz3m4xrbmjf44pocws1"
 		},
-		"TripFaresSynapseAnalyticsLinkedService_connectionString": {
-			"type": "secureString",
-			"metadata": "Secure string for 'connectionString' of 'TripFaresSynapseAnalyticsLinkedService'"
-		},
 		"LS_sasampledata_accountKey": {
 			"type": "secureString",
 			"metadata": "Secure string for 'accountKey' of 'LS_sasampledata'"
+		},
+		"TripFaresSynapseAnalyticsLinkedService_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'TripFaresSynapseAnalyticsLinkedService'"
 		},
 		"HttpServerTripDataLinkedService_properties_typeProperties_url": {
 			"type": "string",
@@ -23,6 +23,10 @@
 			"type": "string",
 			"defaultValue": "https://raw.githubusercontent.com/Azure/Test-Drive-Azure-Synapse-with-a-1-click-POC/main/tripDataAndFaresCSV/fares-data.csv"
 		},
+		"LS_sasampledata_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://sasampledata.dfs.core.windows.net"
+		},
 		"TripFaresDataLakeStorageLinkedService_properties_typeProperties_url": {
 			"type": "string",
 			"defaultValue": "@{concat('https://',linkedService().datalakeAccountName,'.dfs.core.windows.net')}"
@@ -30,10 +34,6 @@
 		"keyVaultLinkedservice_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "@{concat('https://',linkedService().keyVaultName,'.vault.azure.net/')}"
-		},
-		"LS_sasampledata_properties_typeProperties_url": {
-			"type": "string",
-			"defaultValue": "https://sasampledata.dfs.core.windows.net"
 		}
 	},
 	"variables": {
@@ -1095,6 +1095,29 @@
 			]
 		},
 		{
+			"name": "[concat(parameters('workspaceName'), '/LS_sasampledata')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('LS_sasampledata_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('LS_sasampledata_accountKey')]"
+					}
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
 			"name": "[concat(parameters('workspaceName'), '/PowerBIWorkspaceTripsFares')]",
 			"type": "Microsoft.Synapse/workspaces/linkedServices",
 			"apiVersion": "2019-06-01-preview",
@@ -1304,6 +1327,86 @@
 			"dependsOn": []
 		},
 		{
+			"name": "[concat(parameters('workspaceName'), '/BulkLoadScript')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "IF NOT EXISTS (SELECT * FROM sys.objects O JOIN sys.schemas S ON O.schema_id = S.schema_id WHERE O.NAME = 'tripfare' AND O.TYPE = 'U' AND S.NAME = 'dbo')\nCREATE TABLE dbo.tripfare\n\t(\n\t medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n\t)\nWITH\n\t(\n\tDISTRIBUTION = ROUND_ROBIN,\n\t CLUSTERED COLUMNSTORE INDEX\n\t -- HEAP\n\t)\nGO\n\n--Uncomment the 4 lines below to create a stored procedure for data pipeline orchestration​\n--CREATE PROC bulk_load_tripfare\n--AS\n--BEGIN\nCOPY INTO dbo.tripfare\n(medallion 1, hack_license 2, vendor_id 3, pickup_datetime 4, payment_type 5\n, fare_amount 6, surcharge 7, mta_tax 8, tip_amount 9, tolls_amount 10, total_amount 11)\nFROM 'https://sasampledata.dfs.core.windows.net/nyctaxi/source/trip_fare'\nWITH\n(\n\tFILE_TYPE = 'CSV'\n\t,MAXERRORS = 0\n\t,ERRORFILE = 'https://sasampledata.dfs.core.windows.net/nyctaxi/'\n)\n--END\nGO\n\nSELECT TOP 100 * FROM dbo.tripfare\nGO",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "master",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/CETAS_nyctripfare')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "use Nyctaxi\nGO\n\nCREATE EXTERNAL FILE FORMAT nycparquet  \nWITH (  \n    FORMAT_TYPE = PARQUET  ,  \n    DATA_COMPRESSION = 'org.apache.hadoop.io.compress.SnappyCodec'\n)\nGO\n\nCREATE EXTERNAL TABLE dbo.agg_nyc_tripfare\n    WITH (\n        LOCATION = '/agg',  \n        DATA_SOURCE = mysample,  \n        FILE_FORMAT = nycparquet  \n)\n    AS SELECT \n    vendor_id\n    ,hack_license\n    ,SUM(CAST(fare_amount AS FLOAT)) fare_amount\n    ,SUM(CAST(total_amount AS float)) total_amount\n    FROM nyc.tripfare\n    GROUP BY \n    vendor_id\n    ,hack_license\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "nyctaxi",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/CreateExternalTable')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "--CREATE DATABASE nyctaxi\n--GO\n\nUSE nyctaxi;\n\nCREATE EXTERNAL DATA SOURCE mysample\nWITH (    LOCATION   = 'https://sasampledata.dfs.core.windows.net/nyctaxi/source/trip_fare'\n)\nGO\n--DROP EXTERNAL FILE FORMAT textdelimited  \nCREATE EXTERNAL FILE FORMAT textdelimited  \nWITH (  \n    FORMAT_TYPE = DELIMITEDTEXT,  \n    FORMAT_OPTIONS (  \n        FIELD_TERMINATOR = ',', \n        FIRST_ROW = 2, \n        USE_TYPE_DEFAULT = True\n          )\n)\nGO\n\nCREATE SCHEMA nyc\nGO\n--DROP EXTERNAL TABLE nyc.tripfare\nCREATE EXTERNAL TABLE nyc.tripfare (medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n)\nWITH (DATA_SOURCE = mysample, LOCATION = N'*.csv',FILE_FORMAT = textdelimited)\nGO\n\nSELECT TOP 10 * FROM nyc.tripfare",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "nyctaxi",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/GrantPermissionToServerless')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "use master\ngo\nCREATE LOGIN [sitandon@microsoft.com] FROM EXTERNAL PROVIDER;\nALTER SERVER ROLE sysadmin ADD MEMBER [sitandon@microsoft.com];",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "master",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
+		},
+		{
 			"name": "[concat(parameters('workspaceName'), '/Data Exploration and ML Modeling - NYC taxi predict using Spark MLlib')]",
 			"type": "Microsoft.Synapse/workspaces/notebooks",
 			"apiVersion": "2019-06-01-preview",
@@ -1347,16 +1450,12 @@
 						"sparkVersion": "3.1",
 						"nodeCount": 10,
 						"cores": 8,
-						"memory": 56,
-						"extraHeader": {},
-						"automaticScaleJobs": false
-					},
-					"sessionKeepAliveTimeout": 30
+						"memory": 56
+					}
 				},
 				"cells": [
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"# Predict NYC Taxi Tips using Spark ML and Azure Open Datasets\n",
 							"\n",
@@ -1369,7 +1468,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"import matplotlib.pyplot as plt\n",
 							"\n",
@@ -1392,7 +1490,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Ingest Data¶ \n",
 							"\n",
@@ -1401,7 +1498,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"# Import NYC yellow cab data from Azure Open Datasets\n",
 							"from azureml.opendatasets import NycTlcYellow\n",
@@ -1420,7 +1516,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"#To make development easier, faster and less expensive downsample for now\n",
 							"sampled_taxi_df = nyc_tlc_df.sample(True, 0.001, seed=1234)"
@@ -1430,7 +1525,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Exploratory Data Analysis\n",
 							"\n",
@@ -1439,7 +1533,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"#The charting package needs a Pandas dataframe or numpy array do the conversion\n",
 							"sampled_taxi_pd_df = sampled_taxi_df.toPandas()\n",
@@ -1474,7 +1567,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Data Prep and Featurization\n",
 							"\n",
@@ -1486,7 +1578,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"taxi_df = sampled_taxi_df.select('totalAmount', 'fareAmount', 'tipAmount', 'paymentType', 'rateCodeId', 'passengerCount'\\\n",
 							"                                , 'tripDistance', 'tpepPickupDateTime', 'tpepDropoffDateTime'\\\n",
@@ -1509,7 +1600,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Data Prep and Featurization Part 2\n",
 							"\n",
@@ -1521,7 +1611,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"taxi_featurised_df = taxi_df.select('totalAmount', 'fareAmount', 'tipAmount', 'paymentType', 'passengerCount'\\\n",
 							"                                                , 'tripDistance', 'weekdayString', 'pickupHour','tripTimeSecs','tipped'\\\n",
@@ -1538,7 +1627,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Encoding\n",
 							"\n",
@@ -1552,7 +1640,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"# The sample uses an algorithm that only works with numeric features convert them so they can be consumed\n",
 							"sI1 = StringIndexer(inputCol=\"trafficTimeBins\", outputCol=\"trafficTimeBinsIndex\"); \n",
@@ -1568,7 +1655,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Generation of Testing and Training Data Sets\n",
 							"Simple split, 70% for training and 30% for testing the model. Playing with this ratio may result in different models.\n",
@@ -1577,7 +1663,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"# Decide on the split between training and testing data from the dataframe \n",
 							"trainingFraction = 0.7\n",
@@ -1592,7 +1677,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Train the Model\n",
 							"\n",
@@ -1601,7 +1685,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"## Create a new LR object for the model\n",
 							"logReg = LogisticRegression(maxIter=10, regParam=0.3, labelCol = 'tipped')\n",
@@ -1629,7 +1712,6 @@
 					},
 					{
 						"cell_type": "markdown",
-						"metadata": {},
 						"source": [
 							"## Evaluate and Visualize\n",
 							"\n",
@@ -1639,7 +1721,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"## Plot the ROC curve, no need for pandas as this uses the modelSummary object\n",
 							"modelSummary = lrModel.stages[-1].summary\n",
@@ -1655,89 +1736,6 @@
 						"execution_count": null
 					}
 				]
-			},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/dowtz3m4xrbmjf44pocws1p1')]",
-			"type": "Microsoft.Synapse/workspaces/sqlPools",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {
-				"collation": "SQL_Latin1_General_CP1_CI_AS",
-				"maxSizeBytes": 263882790666240,
-				"restorePointInTime": "0001-01-01T00:00:00",
-				"annotations": []
-			},
-			"dependsOn": [],
-			"location": "eastus"
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/default')]",
-			"type": "Microsoft.Synapse/workspaces/managedVirtualNetworks",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/LS_sasampledata')]",
-			"type": "Microsoft.Synapse/workspaces/linkedServices",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {
-				"annotations": [],
-				"type": "AzureBlobFS",
-				"typeProperties": {
-					"url": "[parameters('LS_sasampledata_properties_typeProperties_url')]",
-					"accountKey": {
-						"type": "SecureString",
-						"value": "[parameters('LS_sasampledata_accountKey')]"
-					}
-				},
-				"connectVia": {
-					"referenceName": "AutoResolveIntegrationRuntime",
-					"type": "IntegrationRuntimeReference"
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/BulkLoadScript')]",
-			"type": "Microsoft.Synapse/workspaces/sqlscripts",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {
-				"content": {
-					"query": "IF NOT EXISTS (SELECT * FROM sys.objects O JOIN sys.schemas S ON O.schema_id = S.schema_id WHERE O.NAME = 'tripfare' AND O.TYPE = 'U' AND S.NAME = 'dbo')\nCREATE TABLE dbo.tripfare\n\t(\n\t medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n\t)\nWITH\n\t(\n\tDISTRIBUTION = ROUND_ROBIN,\n\t CLUSTERED COLUMNSTORE INDEX\n\t -- HEAP\n\t)\nGO\n\n--Uncomment the 4 lines below to create a stored procedure for data pipeline orchestration​\n--CREATE PROC bulk_load_tripfare\n--AS\n--BEGIN\nCOPY INTO dbo.tripfare\n(medallion 1, hack_license 2, vendor_id 3, pickup_datetime 4, payment_type 5\n, fare_amount 6, surcharge 7, mta_tax 8, tip_amount 9, tolls_amount 10, total_amount 11)\nFROM 'https://sasampledata.dfs.core.windows.net/nyctaxi/source/trip_fare'\nWITH\n(\n\tFILE_TYPE = 'CSV'\n\t,MAXERRORS = 0\n\t,ERRORFILE = 'https://sasampledata.dfs.core.windows.net/nyctaxi/'\n)\n--END\nGO\n\nSELECT TOP 100 * FROM dbo.tripfare\nGO",
-					"metadata": {
-						"language": "sql"
-					},
-					"currentConnection": {
-						"databaseName": "master",
-						"poolName": "Built-in"
-					},
-					"resultLimit": 5000
-				},
-				"type": "SqlQuery"
-			},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('workspaceName'), '/CreateExternalTable')]",
-			"type": "Microsoft.Synapse/workspaces/sqlscripts",
-			"apiVersion": "2019-06-01-preview",
-			"properties": {
-				"content": {
-					"query": "--CREATE DATABASE nyctaxi\n--GO\n\nUSE nyctaxi;\n\nCREATE EXTERNAL DATA SOURCE mysample\nWITH (    LOCATION   = 'https://sasampledata.dfs.core.windows.net/nyctaxi/source/trip_fare'\n)\nGO\n--DROP EXTERNAL FILE FORMAT textdelimited  \nCREATE EXTERNAL FILE FORMAT textdelimited  \nWITH (  \n    FORMAT_TYPE = DELIMITEDTEXT,  \n    FORMAT_OPTIONS (  \n        FIELD_TERMINATOR = ',', \n        FIRST_ROW = 2, \n        USE_TYPE_DEFAULT = True\n          )\n)\nGO\n\nCREATE SCHEMA nyc\nGO\n--DROP EXTERNAL TABLE nyc.tripfare\nCREATE EXTERNAL TABLE nyc.tripfare (medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n)\nWITH (DATA_SOURCE = mysample, LOCATION = N'*.csv',FILE_FORMAT = textdelimited)\nGO\n\nSELECT TOP 10 * FROM nyc.tripfare",
-					"metadata": {
-						"language": "sql"
-					},
-					"currentConnection": {
-						"databaseName": "nyctaxi",
-						"poolName": "Built-in"
-					},
-					"resultLimit": 5000
-				},
-				"type": "SqlQuery"
 			},
 			"dependsOn": []
 		},
@@ -1764,13 +1762,11 @@
 					"saveOutput": true,
 					"language_info": {
 						"name": "python"
-					},
-					"sessionKeepAliveTimeout": 30
+					}
 				},
 				"cells": [
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"from pyspark.sql.types import *\n",
 							"from pyspark.sql.functions import col, count, rand, collect_list, explode, struct, count, lit\n",
@@ -1782,7 +1778,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"df = spark.range(0, 10 * 1000 * 1000).withColumn('id', (col('id') / 10000).cast('integer')).withColumn('v', rand())\n",
 							"df.cache()\n",
@@ -1793,7 +1788,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"@pandas_udf('double')\n",
 							"def plus_one(v: pd.Series) -> pd.Series:\n",
@@ -1805,7 +1799,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"df.withColumn('v', plus_one(df.v)).agg(count(col('v'))).show()"
 						],
@@ -1814,7 +1807,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"@pandas_udf(\"double\")\n",
 							"def pandas_plus_one(v: pd.Series) -> pd.Series:\n",
@@ -1827,7 +1819,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"p_df = df.toPandas()"
 						],
@@ -1836,7 +1827,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"import pandas as pd\n",
 							"from scipy import stats\n",
@@ -1852,7 +1842,6 @@
 					},
 					{
 						"cell_type": "code",
-						"metadata": {},
 						"source": [
 							"def subtract_mean(pdf: pd.DataFrame) -> pd.DataFrame:\n",
 							"    v = pdf.v\n",
@@ -1900,23 +1889,23 @@
 			"dependsOn": []
 		},
 		{
-			"name": "[concat(parameters('workspaceName'), '/GrantPermissionToServerless')]",
-			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"name": "[concat(parameters('workspaceName'), '/dowtz3m4xrbmjf44pocws1p1')]",
+			"type": "Microsoft.Synapse/workspaces/sqlPools",
 			"apiVersion": "2019-06-01-preview",
 			"properties": {
-				"content": {
-					"query": "use master\ngo\nCREATE LOGIN [sitandon@microsoft.com] FROM EXTERNAL PROVIDER;\nALTER SERVER ROLE sysadmin ADD MEMBER [sitandon@microsoft.com];",
-					"metadata": {
-						"language": "sql"
-					},
-					"currentConnection": {
-						"databaseName": "master",
-						"poolName": "Built-in"
-					},
-					"resultLimit": 5000
-				},
-				"type": "SqlQuery"
+				"collation": "SQL_Latin1_General_CP1_CI_AS",
+				"maxSizeBytes": 263882790666240,
+				"restorePointInTime": "0001-01-01T00:00:00",
+				"annotations": []
 			},
+			"dependsOn": [],
+			"location": "eastus"
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/default')]",
+			"type": "Microsoft.Synapse/workspaces/managedVirtualNetworks",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {},
 			"dependsOn": []
 		}
 	]
