@@ -1,0 +1,17 @@
+{
+	"name": "CreateExternalTable_public_nycfare",
+	"properties": {
+		"content": {
+			"query": "--CREATE DATABASE nyctaxi\n--GO\n\nUSE nyctaxi;\n\nCREATE EXTERNAL DATA SOURCE ds_public_tripfare\nWITH (    LOCATION   = 'https://dowtz3m4xrbmjf44poc.dfs.core.windows.net/public/'\n)\nGO\n--DROP EXTERNAL FILE FORMAT textdelimited  \nCREATE EXTERNAL FILE FORMAT textdelimited_public_tripfare  \nWITH (  \n    FORMAT_TYPE = DELIMITEDTEXT,  \n    FORMAT_OPTIONS (  \n        FIELD_TERMINATOR = ',', \n        FIRST_ROW = 2, \n        USE_TYPE_DEFAULT = True\n          )\n)\nGO\n\nCREATE SCHEMA nyc\nGO\n--DROP EXTERNAL TABLE nyc.tripfare\nCREATE EXTERNAL TABLE nyc.public_tripfare (medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n)\nWITH (DATA_SOURCE = ds_public_tripfare, LOCATION = N'trip-data.csv',FILE_FORMAT = textdelimited)\nGO\n\nSELECT TOP 10 * FROM nyc.public_tripfare",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "nyctaxi",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
