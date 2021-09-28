@@ -1,0 +1,17 @@
+{
+	"name": "GrantPermissionToServerless",
+	"properties": {
+		"content": {
+			"query": "use master\ngo\nCREATE LOGIN [sitandon@microsoft.com] FROM EXTERNAL PROVIDER;\nALTER SERVER ROLE sysadmin ADD MEMBER [sitandon@microsoft.com];",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "master",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
