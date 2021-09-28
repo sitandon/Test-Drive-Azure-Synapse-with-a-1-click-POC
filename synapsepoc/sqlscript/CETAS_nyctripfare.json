@@ -1,0 +1,17 @@
+{
+	"name": "CETAS_nyctripfare",
+	"properties": {
+		"content": {
+			"query": "use Nyctaxi\nGO\n\nCREATE EXTERNAL FILE FORMAT nycparquet  \nWITH (  \n    FORMAT_TYPE = PARQUET  ,  \n    DATA_COMPRESSION = 'org.apache.hadoop.io.compress.SnappyCodec'\n)\nGO\n\nCREATE EXTERNAL TABLE dbo.agg_nyc_tripfare\n    WITH (\n        LOCATION = '/agg',  \n        DATA_SOURCE = mysample,  \n        FILE_FORMAT = nycparquet  \n)\n    AS SELECT \n    vendor_id\n    ,hack_license\n    ,SUM(CAST(fare_amount AS FLOAT)) fare_amount\n    ,SUM(CAST(total_amount AS float)) total_amount\n    FROM nyc.tripfare\n    GROUP BY \n    vendor_id\n    ,hack_license\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "nyctaxi",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
