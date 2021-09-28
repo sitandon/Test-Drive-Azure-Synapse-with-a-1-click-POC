@@ -15,6 +15,10 @@
 			"type": "secureString",
 			"metadata": "Secure string for 'connectionString' of 'TripFaresSynapseAnalyticsLinkedService'"
 		},
+		"LS_dowtz3m4xrbmjf44poc_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'LS_dowtz3m4xrbmjf44poc'"
+		},
 		"HttpServerTripDataLinkedService_properties_typeProperties_url": {
 			"type": "string",
 			"defaultValue": "https://raw.githubusercontent.com/Azure/Test-Drive-Azure-Synapse-with-a-1-click-POC/main/tripDataAndFaresCSV/trip-data.csv"
@@ -34,6 +38,10 @@
 		"keyVaultLinkedservice_properties_typeProperties_baseUrl": {
 			"type": "string",
 			"defaultValue": "@{concat('https://',linkedService().keyVaultName,'.vault.azure.net/')}"
+		},
+		"LS_dowtz3m4xrbmjf44poc_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://dowtz3m4xrbmjf44poc.dfs.core.windows.net"
 		}
 	},
 	"variables": {
@@ -549,6 +557,7 @@
 				"[concat(variables('workspaceId'), '/datasets/faresDataSource')]",
 				"[concat(variables('workspaceId'), '/datasets/faresDataSink')]",
 				"[concat(variables('workspaceId'), '/dataflows/tripFaresDataTransformations')]",
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]",
 				"[concat(variables('workspaceId'), '/datasets/azureSynapseAnalyticsSchema')]",
 				"[concat(variables('workspaceId'), '/datasets/AzureSynapseAnalyticsTripsData')]",
 				"[concat(variables('workspaceId'), '/datasets/AzureSynapseAnalyticsFaresData')]",
@@ -1906,6 +1915,49 @@
 			"type": "Microsoft.Synapse/workspaces/managedVirtualNetworks",
 			"apiVersion": "2019-06-01-preview",
 			"properties": {},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/LS_dowtz3m4xrbmjf44poc')]",
+			"type": "Microsoft.Synapse/workspaces/linkedServices",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('LS_dowtz3m4xrbmjf44poc_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('LS_dowtz3m4xrbmjf44poc_accountKey')]"
+					}
+				},
+				"connectVia": {
+					"referenceName": "AutoResolveIntegrationRuntime",
+					"type": "IntegrationRuntimeReference"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('workspaceId'), '/integrationRuntimes/AutoResolveIntegrationRuntime')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/CreateExternalTable_public_nycfare')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "--CREATE DATABASE nyctaxi\n--GO\n\nUSE nyctaxi;\n\nCREATE EXTERNAL DATA SOURCE ds_public_tripfare\nWITH (    LOCATION   = 'https://dowtz3m4xrbmjf44poc.dfs.core.windows.net/public/'\n)\nGO\n--DROP EXTERNAL FILE FORMAT delimited_public_tripfare  \nCREATE EXTERNAL FILE FORMAT delimited_public_tripfare  \nWITH (  \n    FORMAT_TYPE = DELIMITEDTEXT,  \n    FORMAT_OPTIONS (  \n        FIELD_TERMINATOR = ',', \n        FIRST_ROW = 2, \n        USE_TYPE_DEFAULT = True,\n        STRING_DELIMITER = '\"'\n          )\n)\nGO\n\nCREATE SCHEMA nyc\nGO\n--DROP EXTERNAL TABLE nyc.public_tripfare\nCREATE EXTERNAL TABLE nyc.public_tripfare (medallion varchar(100),\n\thack_license varchar(100),\n    vendor_id varchar(100),\n    pickup_datetime varchar(100),\n    payment_type varchar(100),\n    fare_amount varchar(100),\n    surcharge varchar(100),\t\n    mta_tax\tvarchar(100),\n    tip_amount varchar(100),\n    tolls_amount varchar(100),\t\n    total_amount varchar(100)\n)\nWITH (DATA_SOURCE = ds_public_tripfare, LOCATION = N'fares-data.csv',FILE_FORMAT = delimited_public_tripfare)\nGO\n\nSELECT TOP 10 * FROM nyc.public_tripfare\n\n\n\nCREATE EXTERNAL FILE FORMAT public_nycparquet  \nWITH (  \n    FORMAT_TYPE = PARQUET  ,  \n    DATA_COMPRESSION = 'org.apache.hadoop.io.compress.SnappyCodec'\n)\nGO\n\n--DROP EXTERNAL TABLE dbo.public_agg_nyc_tripfare\nCREATE EXTERNAL TABLE dbo.public_agg_nyc_tripfare\n    WITH (\n        LOCATION = '/agg',  \n        DATA_SOURCE = ds_public_tripfare,  \n        FILE_FORMAT = public_nycparquet  \n)\n    AS SELECT \n    vendor_id\n    ,hack_license\n    ,SUM(CAST(fare_amount AS FLOAT)) fare_amount\n    ,SUM(CAST(total_amount AS float)) total_amount\n    FROM nyc.public_tripfare\n    GROUP BY \n    vendor_id\n    ,hack_license\n\n\nSELECT TOP 10 * FROM dbo.public_agg_nyc_tripfare\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "nyctaxi",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
 			"dependsOn": []
 		}
 	]
